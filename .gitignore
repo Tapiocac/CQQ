@@ -1,0 +1,7 @@
+# 忽略 ros_team_workspace 目录
+ros_team_workspace/
+robot_ws/build/
+robot_ws/install/
+robot_ws/log/
+
+.vscode

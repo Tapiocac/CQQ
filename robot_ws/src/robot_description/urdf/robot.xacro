@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot">
+    <!-- 底盘 -->
+    <xacro:include filename="$(find robot_description)/urdf/base.xacro" />
+    
+    <!-- 执行器组件 -->
+    <xacro:include filename="$(find robot_description)/urdf/actuator/wheel.xacro" />
+    <xacro:include filename="$(find robot_description)/urdf/actuator/rotating_base.xacro" />
+    <xacro:include filename="$(find robot_description)/urdf/actuator/upper_arm.xacro" />
+    <xacro:include filename="$(find robot_description)/urdf/actuator/forearm.xacro" />
+
+    <xacro:base_xacro />
+
+    <!-- 执行器驱动轮-->
+    <xacro:wheel_xacro wheel_name="left1" xyz="0.05 0.07 -0.03" />
+    <xacro:wheel_xacro wheel_name="left2" xyz="-0.05 0.07 -0.03" />
+    <xacro:wheel_xacro wheel_name="right1" xyz="0.05 -0.07 -0.03" />
+    <xacro:wheel_xacro wheel_name="right2" xyz="-0.05 -0.07 -0.03" />
+    <!-- 旋转底盘 -->
+    <xacro:rotating_base_xacro rotating_base_name="rotating_base" xyz="0 0 0.03" />
+    <!-- 机械臂 -->
+    <!-- <xacro:upper_arm_xacro arm_name="upper_arm" xyz="0 0 0" parent_name="rotating_base" /> -->
+    <!-- <xacro:forearm_xacro arm_name="forearm" xyz="0 0 0.15" parent_name="upper_arm" /> -->
+
+    <xacro:include filename="$(find robot_description)/urdf/robot_ros2_control.xacro" />
+    <xacro:robot_ros2_control />
+
+
+
+
+    
+</robot>

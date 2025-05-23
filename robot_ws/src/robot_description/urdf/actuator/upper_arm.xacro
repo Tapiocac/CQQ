@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+   <xacro:include filename="$(find robot_description)/urdf/common_inertia.xacro" />
+    <xacro:macro name="upper_arm_xacro" params="arm_name xyz parent_name">
+        <link name="${arm_name}_link">
+            <visual>
+                <origin xyz="0 0 0.075" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.02 0.02 0.15"  />
+                </geometry>
+                <material name="red">
+                    <color rgba="1.0 0.0 0.0 0.8"/>
+                </material>
+            </visual>
+            <collision>
+                <origin xyz="0 0 0.075" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.02 0.02 0.15"  />
+                </geometry>
+                <material name="red">
+                    <color rgba="1.0 0.0 0.0 0.8"/>
+                </material>
+            </collision>
+            <xacro:box_inertia m="0.1" w="0.02" h="0.02" d="0.15"/>
+        </link>
+        <gazebo reference="${arm_name}_link">
+            <material>Gazebo/Red</material>
+            <mu1>0.2</mu1>  <!-- 静摩擦系数 -->
+            <mu2>0.1</mu2>  <!-- 动摩擦系数 -->
+            <kp>1000000.0</kp>  <!-- 接触刚度 -->
+            <kd>100.0</kd>    <!-- 接触阻尼 -->
+            <maxVel>1.0</maxVel>  <!-- 最大接触速度 -->
+            <minDepth>0.001</minDepth>  <!-- 最小穿透深度 -->
+            <initial_position>0.5</initial_position>
+        </gazebo>
+
+        <joint name="shoulder_joint" type="revolute">
+            <parent link="${parent_name}_link" />
+            <child link="${arm_name}_link" />
+            <origin xyz="${xyz}" />
+            <axis xyz="0 1 0" />
+            <limit lower="-1.57" upper="1.57" effort="100" velocity="0.01"/>
+            <default>0.5</default> <!-- 初始位置：0.5弧度 -->
+        </joint>
+    </xacro:macro>
+</robot>
