@@ -1,8 +1,0 @@
-<library path="my_pid_effort_controller">
-  <class
-    name="my_pid_effort_controller/PIDEffortController"
-    type="my_pid_effort_controller::PIDEffortController"
-    base_class_type="controller_interface::ControllerInterface">
-    <description>Custom PID effort controller</description>
-  </class>
-</library>

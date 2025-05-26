@@ -1,101 +1,265 @@
-#include "my_pid_effort_controller/pid_effort_controller.hpp"
-#include "pluginlib/class_list_macros.hpp"
-#include "rclcpp/logging.hpp"
+// Copyright (c) 2022, Stogl Robotics Consulting UG (haftungsbeschränkt) (template)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-namespace my_pid_effort_controller {
+//
+// Source of this file are templates in
+// [RosTeamWorkspace](https://github.com/StoglRobotics/ros_team_workspace) repository.
+//
 
-PIDEffortController::PIDEffortController() {}
+#include "robot_controller/my_controller.hpp"
 
-controller_interface::CallbackReturn PIDEffortController::on_init() {
-  auto logger = get_node()->get_logger();
-  if (!get_node()->get_parameter("joints", joint_names_)) {
-    RCLCPP_ERROR(logger, "Joint list 'joints' is not set!");
+#include <limits>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "controller_interface/helpers.hpp"
+
+namespace
+{  // utility
+
+// TODO(destogl): remove this when merged upstream
+// Changed services history QoS to keep all so we don't lose any client service calls
+static constexpr rmw_qos_profile_t rmw_qos_profile_services_hist_keep_all = {
+  RMW_QOS_POLICY_HISTORY_KEEP_ALL,
+  1,  // message queue depth
+  RMW_QOS_POLICY_RELIABILITY_RELIABLE,
+  RMW_QOS_POLICY_DURABILITY_VOLATILE,
+  RMW_QOS_DEADLINE_DEFAULT,
+  RMW_QOS_LIFESPAN_DEFAULT,
+  RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT,
+  RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
+  false};
+
+using ControllerReferenceMsg = robot_controller::MyController::ControllerReferenceMsg;
+
+// called from RT control loop
+void reset_controller_reference_msg(
+  std::shared_ptr<ControllerReferenceMsg> & msg, const std::vector<std::string> & joint_names)
+{
+  msg->joint_names = joint_names;
+  msg->displacements.resize(joint_names.size(), std::numeric_limits<double>::quiet_NaN());
+  msg->velocities.resize(joint_names.size(), std::numeric_limits<double>::quiet_NaN());
+  msg->duration = std::numeric_limits<double>::quiet_NaN();
+}
+
+}  // namespace
+
+namespace robot_controller
+{
+MyController::MyController() : controller_interface::ControllerInterface() {}
+
+controller_interface::CallbackReturn MyController::on_init()
+{
+  control_mode_.initRT(control_mode_type::FAST);
+
+  try
+  {
+    param_listener_ = std::make_shared<my_controller::ParamListener>(get_node());
+  }
+  catch (const std::exception & e)
+  {
+    fprintf(stderr, "Exception thrown during controller's init with message: %s \n", e.what());
     return controller_interface::CallbackReturn::ERROR;
   }
-  get_node()->declare_parameter("kp", 5.0);
-  get_node()->declare_parameter("ki", 0.1);
-  get_node()->declare_parameter("kd", 0.01);
-
-  kp_ = get_node()->get_parameter("kp").as_double();
-  ki_ = get_node()->get_parameter("ki").as_double();
-  kd_ = get_node()->get_parameter("kd").as_double();
-
-  targets_.resize(joint_names_.size(), 0.0);
-  integrals_.resize(joint_names_.size(), 0.0);
-  prev_errors_.resize(joint_names_.size(), 0.0);
-
-  target_sub_ = get_node()->create_subscription<std_msgs::msg::Float64MultiArray>(
-    "~/targets", 10,
-    std::bind(&PIDEffortController::target_callback, this, std::placeholders::_1)
-  );
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-void PIDEffortController::target_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
-  if (msg->data.size() != targets_.size()) return;
-  for (size_t i = 0; i < targets_.size(); ++i) {
-    targets_[i] = msg->data[i];
+controller_interface::CallbackReturn MyController::on_configure(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  params_ = param_listener_->get_params();
+
+  if (!params_.state_joints.empty())
+  {
+    state_joints_ = params_.state_joints;
+  }
+  else
+  {
+    state_joints_ = params_.joints;
+  }
+
+  if (params_.joints.size() != state_joints_.size())
+  {
+    RCLCPP_FATAL(
+      get_node()->get_logger(),
+      "Size of 'joints' (%zu) and 'state_joints' (%zu) parameters has to be the same!",
+      params_.joints.size(), state_joints_.size());
+    return CallbackReturn::FAILURE;
+  }
+
+  // topics QoS
+  auto subscribers_qos = rclcpp::SystemDefaultsQoS();
+  subscribers_qos.keep_last(1);
+  subscribers_qos.best_effort();
+
+  // Reference Subscriber
+  ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
+    "~/reference", subscribers_qos,
+    std::bind(&MyController::reference_callback, this, std::placeholders::_1));
+
+  std::shared_ptr<ControllerReferenceMsg> msg = std::make_shared<ControllerReferenceMsg>();
+  reset_controller_reference_msg(msg, params_.joints);
+  input_ref_.writeFromNonRT(msg);
+
+  auto set_slow_mode_service_callback =
+    [&](
+      const std::shared_ptr<ControllerModeSrvType::Request> request,
+      std::shared_ptr<ControllerModeSrvType::Response> response)
+  {
+    if (request->data)
+    {
+      control_mode_.writeFromNonRT(control_mode_type::SLOW);
+    }
+    else
+    {
+      control_mode_.writeFromNonRT(control_mode_type::FAST);
+    }
+    response->success = true;
+  };
+
+  set_slow_control_mode_service_ = get_node()->create_service<ControllerModeSrvType>(
+    "~/set_slow_control_mode", set_slow_mode_service_callback,
+    rmw_qos_profile_services_hist_keep_all);
+
+  try
+  {
+    // State publisher
+    s_publisher_ =
+      get_node()->create_publisher<ControllerStateMsg>("~/state", rclcpp::SystemDefaultsQoS());
+    state_publisher_ = std::make_unique<ControllerStatePublisher>(s_publisher_);
+  }
+  catch (const std::exception & e)
+  {
+    fprintf(
+      stderr, "Exception thrown during publisher creation at configure stage with message : %s \n",
+      e.what());
+    return controller_interface::CallbackReturn::ERROR;
+  }
+
+  // TODO(anyone): Reserve memory in state publisher depending on the message type
+  state_publisher_->lock();
+  state_publisher_->msg_.header.frame_id = params_.joints[0];
+  state_publisher_->unlock();
+
+  RCLCPP_INFO(get_node()->get_logger(), "configure successful");
+  return controller_interface::CallbackReturn::SUCCESS;
+}
+
+void MyController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
+{
+  if (msg->joint_names.size() == params_.joints.size())
+  {
+    input_ref_.writeFromNonRT(msg);
+  }
+  else
+  {
+    RCLCPP_ERROR(
+      get_node()->get_logger(),
+      "Received %zu , but expected %zu joints in command. Ignoring message.",
+      msg->joint_names.size(), params_.joints.size());
   }
 }
 
-controller_interface::InterfaceConfiguration PIDEffortController::command_interface_configuration() const {
-  return {
-    controller_interface::interface_configuration_type::INDIVIDUAL,
-    [this]() {
-      std::vector<std::string> interfaces;
-      for (const auto &j : joint_names_)
-        interfaces.push_back(j + "/effort");
-      return interfaces;
-    }()
-  };
-}
+controller_interface::InterfaceConfiguration MyController::command_interface_configuration() const
+{
+  controller_interface::InterfaceConfiguration command_interfaces_config;
+  command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-controller_interface::InterfaceConfiguration PIDEffortController::state_interface_configuration() const {
-  return {
-    controller_interface::interface_configuration_type::INDIVIDUAL,
-    [this]() {
-      std::vector<std::string> interfaces;
-      for (const auto &j : joint_names_)
-        interfaces.push_back(j + "/velocity");
-      return interfaces;
-    }()
-  };
-}
-
-controller_interface::CallbackReturn PIDEffortController::on_configure(const rclcpp_lifecycle::State &) {
-  return controller_interface::CallbackReturn::SUCCESS;
-}
-
-controller_interface::CallbackReturn PIDEffortController::on_activate(const rclcpp_lifecycle::State &) {
-  effort_interfaces_.resize(joint_names_.size());
-  velocity_interfaces_.resize(joint_names_.size());
-
-  for (size_t i = 0; i < joint_names_.size(); ++i) {
-    effort_interfaces_[i] = command_interfaces_[i];
-    velocity_interfaces_[i] = state_interfaces_[i];
+  command_interfaces_config.names.reserve(params_.joints.size());
+  for (const auto & joint : params_.joints)
+  {
+    command_interfaces_config.names.push_back(joint + "/" + params_.interface_name);
   }
 
+  return command_interfaces_config;
+}
+
+controller_interface::InterfaceConfiguration MyController::state_interface_configuration() const
+{
+  controller_interface::InterfaceConfiguration state_interfaces_config;
+  state_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
+
+  state_interfaces_config.names.reserve(state_joints_.size());
+  for (const auto & joint : state_joints_)
+  {
+    state_interfaces_config.names.push_back(joint + "/" + params_.interface_name);
+  }
+
+  return state_interfaces_config;
+}
+
+controller_interface::CallbackReturn MyController::on_activate(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  // TODO(anyone): if you have to manage multiple interfaces that need to be sorted check
+  // `on_activate` method in `JointTrajectoryController` for exemplary use of
+  // `controller_interface::get_ordered_interfaces` helper function
+
+  // Set default value in command
+  reset_controller_reference_msg(*(input_ref_.readFromRT)(), params_.joints);
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-controller_interface::CallbackReturn PIDEffortController::on_deactivate(const rclcpp_lifecycle::State &) {
+controller_interface::CallbackReturn MyController::on_deactivate(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
+  // instead of a loop
+  for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  {
+    command_interfaces_[i].set_value(std::numeric_limits<double>::quiet_NaN());
+  }
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-controller_interface::return_type PIDEffortController::update() {
-  for (size_t i = 0; i < joint_names_.size(); ++i) {
-    double error = targets_[i] - velocity_interfaces_[i].get_value();
-    integrals_[i] += error;
-    double derivative = error - prev_errors_[i];
-    prev_errors_[i] = error;
-    double effort = kp_ * error + ki_ * integrals_[i] + kd_ * derivative;
-    effort_interfaces_[i].set_value(effort);
+controller_interface::return_type MyController::update(
+  const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
+{
+  auto current_ref = input_ref_.readFromRT();
+
+  // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
+  // instead of a loop
+  for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  {
+    if (!std::isnan((*current_ref)->displacements[i]))
+    {
+      if (*(control_mode_.readFromRT()) == control_mode_type::SLOW)
+      {
+        (*current_ref)->displacements[i] /= 2;
+      }
+      command_interfaces_[i].set_value((*current_ref)->displacements[i]);
+
+      (*current_ref)->displacements[i] = std::numeric_limits<double>::quiet_NaN();
+    }
+  }
+
+  if (state_publisher_ && state_publisher_->trylock())
+  {
+    state_publisher_->msg_.header.stamp = time;
+    state_publisher_->msg_.set_point = command_interfaces_[CMD_MY_ITFS].get_value();
+    state_publisher_->unlockAndPublish();
   }
 
   return controller_interface::return_type::OK;
 }
 
-}  // namespace my_pid_effort_controller
+}  // namespace robot_controller
 
-PLUGINLIB_EXPORT_CLASS(my_pid_effort_controller::PIDEffortController, controller_interface::ControllerInterface)
+#include "pluginlib/class_list_macros.hpp"
+
+PLUGINLIB_EXPORT_CLASS(
+  robot_controller::MyController, controller_interface::ControllerInterface)
