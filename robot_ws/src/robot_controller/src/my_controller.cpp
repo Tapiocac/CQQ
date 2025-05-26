@@ -42,6 +42,12 @@ static constexpr rmw_qos_profile_t rmw_qos_profile_services_hist_keep_all = {
   RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
   false};
 
+static constexpr auto DEFAULT_TRANSFORM_TOPIC = "/tf";
+static constexpr auto DEFAULT_COMMAND_TOPIC = "~/cmd_vel";
+static constexpr auto DEFAULT_ODOMETRY_TOPIC = "/odom";
+static constexpr auto odom_frame_id = "odom";
+static constexpr auto base_frame_id = "base_link";
+
 using ControllerReferenceMsg = robot_controller::MyController::ControllerReferenceMsg;
 
 // called from RT control loop
@@ -105,7 +111,7 @@ controller_interface::CallbackReturn MyController::on_configure(
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
 
-  // Reference Subscriber
+  // Reference Subscriber 接收数据
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "~/reference", subscribers_qos,
     std::bind(&MyController::reference_callback, this, std::placeholders::_1));
@@ -229,6 +235,8 @@ controller_interface::CallbackReturn MyController::on_deactivate(
 controller_interface::return_type MyController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
+  // 将命令传递给command_interfaces_
+  // 从
   auto current_ref = input_ref_.readFromRT();
 
   // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,

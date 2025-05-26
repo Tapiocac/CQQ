@@ -1,7 +1,14 @@
-# 忽略 ros_team_workspace 目录
+# 忽略其它项目
 ros_team_workspace/
+test/
+ros2_controllers/
+# 忽略编译生成的文件
 robot_ws/build/
 robot_ws/install/
 robot_ws/log/
+
+diff_demo_ros2_control_ws/build/
+diff_demo_ros2_control_ws/install/
+diff_demo_ros2_control_ws/log/
 
 .vscode
