@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "controller_interface/helpers.hpp"
+#include "hardware_interface/types/hardware_interface_type_values.hpp"
 
 namespace
 {  // utility
@@ -42,11 +43,11 @@ static constexpr rmw_qos_profile_t rmw_qos_profile_services_hist_keep_all = {
   RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
   false};
 
-static constexpr auto DEFAULT_TRANSFORM_TOPIC = "/tf";
-static constexpr auto DEFAULT_COMMAND_TOPIC = "~/cmd_vel";
-static constexpr auto DEFAULT_ODOMETRY_TOPIC = "/odom";
-static constexpr auto odom_frame_id = "odom";
-static constexpr auto base_frame_id = "base_link";
+// static constexpr auto DEFAULT_TRANSFORM_TOPIC = "/tf";
+// static constexpr auto DEFAULT_COMMAND_TOPIC = "~/cmd_vel";
+// static constexpr auto DEFAULT_ODOMETRY_TOPIC = "/odom";
+// static constexpr auto odom_frame_id = "odom";
+// static constexpr auto base_frame_id = "base_link";
 
 using ControllerReferenceMsg = robot_controller::MyController::ControllerReferenceMsg;
 
@@ -54,10 +55,13 @@ using ControllerReferenceMsg = robot_controller::MyController::ControllerReferen
 void reset_controller_reference_msg(
   std::shared_ptr<ControllerReferenceMsg> & msg, const std::vector<std::string> & joint_names)
 {
-  msg->joint_names = joint_names;
-  msg->displacements.resize(joint_names.size(), std::numeric_limits<double>::quiet_NaN());
-  msg->velocities.resize(joint_names.size(), std::numeric_limits<double>::quiet_NaN());
-  msg->duration = std::numeric_limits<double>::quiet_NaN();
+  // msg->joint_names = joint_names;
+  // msg->displacements.resize(joint_names.size(), std::numeric_limits<double>::quiet_NaN());
+  // msg->velocities.resize(joint_names.size(), std::numeric_limits<double>::quiet_NaN());
+  // msg->duration = std::numeric_limits<double>::quiet_NaN();
+
+  // 只需要设置data，长度等于关节数，初值为NaN(未赋值)
+  msg->data.resize(joint_names.size(), std::numeric_limits<double>::quiet_NaN());
 }
 
 }  // namespace
@@ -79,6 +83,20 @@ controller_interface::CallbackReturn MyController::on_init()
     fprintf(stderr, "Exception thrown during controller's init with message: %s \n", e.what());
     return controller_interface::CallbackReturn::ERROR;
   }
+
+  // try
+  // {
+  //   // Explicitly set the interface parameter declared by the forward_command_controller
+  //   // to match the value set in the JointGroupEffortController constructor.
+  //   get_node()->set_parameter(
+  //     rclcpp::Parameter("interface_name", hardware_interface::HW_IF_EFFORT));
+  // }
+  // catch (const std::exception & e)
+  // {
+  //   fprintf(stderr, "Exception thrown during init stage with message: %s \n", e.what());
+  //   return controller_interface::CallbackReturn::ERROR;
+  // }
+
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -106,12 +124,13 @@ controller_interface::CallbackReturn MyController::on_configure(
     return CallbackReturn::FAILURE;
   }
 
+
   // topics QoS
   auto subscribers_qos = rclcpp::SystemDefaultsQoS();
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
 
-  // Reference Subscriber 接收数据
+  // Reference Subscriber 接收数据,放入input_ref_中
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "~/reference", subscribers_qos,
     std::bind(&MyController::reference_callback, this, std::placeholders::_1));
@@ -120,25 +139,25 @@ controller_interface::CallbackReturn MyController::on_configure(
   reset_controller_reference_msg(msg, params_.joints);
   input_ref_.writeFromNonRT(msg);
 
-  auto set_slow_mode_service_callback =
-    [&](
-      const std::shared_ptr<ControllerModeSrvType::Request> request,
-      std::shared_ptr<ControllerModeSrvType::Response> response)
-  {
-    if (request->data)
-    {
-      control_mode_.writeFromNonRT(control_mode_type::SLOW);
-    }
-    else
-    {
-      control_mode_.writeFromNonRT(control_mode_type::FAST);
-    }
-    response->success = true;
-  };
+  // auto set_slow_mode_service_callback =
+  //   [&](
+  //     const std::shared_ptr<ControllerModeSrvType::Request> request,
+  //     std::shared_ptr<ControllerModeSrvType::Response> response)
+  // {
+  //   if (request->data)
+  //   {
+  //     control_mode_.writeFromNonRT(control_mode_type::SLOW);
+  //   }
+  //   else
+  //   {
+  //     control_mode_.writeFromNonRT(control_mode_type::FAST);
+  //   }
+  //   response->success = true;
+  // };
 
-  set_slow_control_mode_service_ = get_node()->create_service<ControllerModeSrvType>(
-    "~/set_slow_control_mode", set_slow_mode_service_callback,
-    rmw_qos_profile_services_hist_keep_all);
+  // set_slow_control_mode_service_ = get_node()->create_service<ControllerModeSrvType>(
+  //   "~/set_slow_control_mode", set_slow_mode_service_callback,
+  //   rmw_qos_profile_services_hist_keep_all);
 
   try
   {
@@ -156,17 +175,24 @@ controller_interface::CallbackReturn MyController::on_configure(
   }
 
   // TODO(anyone): Reserve memory in state publisher depending on the message type
-  state_publisher_->lock();
-  state_publisher_->msg_.header.frame_id = params_.joints[0];
-  state_publisher_->unlock();
+  // 轮子状态将在update中填充
+  // state_publisher_->lock();
+  // state_publisher_->msg_.header.frame_id = params_.joints[0];
+  // state_publisher_->unlock();
+
+  // 初始化PID控制器
+  pid_controllers_.resize(params_.joints.size());
+  target_velocities_.resize(params_.joints.size(), 0.0);
+  current_velocities_.resize(params_.joints.size(), 0.0);
 
   RCLCPP_INFO(get_node()->get_logger(), "configure successful");
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
+// 记录接收到的指令
 void MyController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
 {
-  if (msg->joint_names.size() == params_.joints.size())
+  if (msg->data.size() == params_.joints.size())
   {
     input_ref_.writeFromNonRT(msg);
   }
@@ -175,7 +201,7 @@ void MyController::reference_callback(const std::shared_ptr<ControllerReferenceM
     RCLCPP_ERROR(
       get_node()->get_logger(),
       "Received %zu , but expected %zu joints in command. Ignoring message.",
-      msg->joint_names.size(), params_.joints.size());
+      msg->data.size(), params_.joints.size());
   }
 }
 
@@ -184,10 +210,11 @@ controller_interface::InterfaceConfiguration MyController::command_interface_con
   controller_interface::InterfaceConfiguration command_interfaces_config;
   command_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
+  // 4轮是分开的
   command_interfaces_config.names.reserve(params_.joints.size());
   for (const auto & joint : params_.joints)
   {
-    command_interfaces_config.names.push_back(joint + "/" + params_.interface_name);
+    command_interfaces_config.names.push_back(joint + "/" + params_.command_interfaces);// "left1_wheel_joint/effort ... right2_wheel_joint/effort"
   }
 
   return command_interfaces_config;
@@ -198,10 +225,14 @@ controller_interface::InterfaceConfiguration MyController::state_interface_confi
   controller_interface::InterfaceConfiguration state_interfaces_config;
   state_interfaces_config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  state_interfaces_config.names.reserve(state_joints_.size());
+  // 4个轮子，每个轮子有3个状态接口position，velocity，effort
+  state_interfaces_config.names.reserve(state_joints_.size() * params_.state_interfaces.size());
   for (const auto & joint : state_joints_)
   {
-    state_interfaces_config.names.push_back(joint + "/" + params_.interface_name);
+    for (const auto & iface : params_.state_interfaces)
+    {
+      state_interfaces_config.names.push_back(joint + "/" + iface);
+    }
   }
 
   return state_interfaces_config;
@@ -232,33 +263,101 @@ controller_interface::CallbackReturn MyController::on_deactivate(
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
+// 将命令传递给command_interfaces_
+// 从state_interfaces_中读取当前状态
 controller_interface::return_type MyController::update(
-  const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
+  const rclcpp::Time & time, const rclcpp::Duration & period)
 {
-  // 将命令传递给command_interfaces_
-  // 从
+  
   auto current_ref = input_ref_.readFromRT();
 
-  // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
-  // instead of a loop
-  for (size_t i = 0; i < command_interfaces_.size(); ++i)
-  {
-    if (!std::isnan((*current_ref)->displacements[i]))
-    {
-      if (*(control_mode_.readFromRT()) == control_mode_type::SLOW)
-      {
-        (*current_ref)->displacements[i] /= 2;
-      }
-      command_interfaces_[i].set_value((*current_ref)->displacements[i]);
 
-      (*current_ref)->displacements[i] = std::numeric_limits<double>::quiet_NaN();
+  // 1. 读取当前速度
+  size_t num_joints = params_.joints.size();
+  size_t num_state_itfs = params_.state_interfaces.size();
+  for (size_t i = 0; i < num_joints; ++i)
+  {
+    for (size_t j = 0; j < num_state_itfs; ++j)
+    {
+      if (params_.state_interfaces[j] == "velocity")
+      {
+        current_velocities_[i] = state_interfaces_[i * num_state_itfs + j].get_value();
+      }
     }
   }
 
+  // 2. 读取目标速度
+  for (size_t i = 0; i < num_joints; ++i)
+  {
+    if (!std::isnan((*current_ref)->data[i]))
+    {
+      target_velocities_[i] = (*current_ref)->data[i];
+      (*current_ref)->data[i] = std::numeric_limits<double>::quiet_NaN();
+    }
+  }
+
+
+  // 3. PID计算并下发力矩
+  for (size_t i = 0; i < num_joints; ++i)
+  {
+    double error = target_velocities_[i] - current_velocities_[i];
+    double effort = pid_controllers_[i].compute(error, period.seconds());
+    command_interfaces_[i].set_value(effort);
+  }
+
+
+
+
+  // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
+  // instead of a loop
+  // 将命令传递给硬件命令接口command_interfaces_，并将命令缓存初始化
+  // for (size_t i = 0; i < command_interfaces_.size(); ++i)
+  // {
+  //   if (!std::isnan((*current_ref)->data[i]))
+  //   {
+  //     // if (*(control_mode_.readFromRT()) == control_mode_type::SLOW)
+  //     // {
+  //     //   (*current_ref)->displacements[i] /= 2;
+  //     // }
+  //     command_interfaces_[i].set_value((*current_ref)->data[i]);
+
+  //     (*current_ref)->data[i] = std::numeric_limits<double>::quiet_NaN();
+  //   }
+  // }
+
   if (state_publisher_ && state_publisher_->trylock())
   {
+    // 填充sensor_msgs::msg::JointState消息
     state_publisher_->msg_.header.stamp = time;
-    state_publisher_->msg_.set_point = command_interfaces_[CMD_MY_ITFS].get_value();
+    state_publisher_->msg_.name = params_.joints;
+    state_publisher_->msg_.position.clear();
+    state_publisher_->msg_.velocity.clear();
+    state_publisher_->msg_.effort.clear();
+
+    // 读取state_interfaces_中的数据
+    for (size_t i = 0; i < state_joints_.size(); ++i)
+    {
+      for (size_t j = 0; j < params_.state_interfaces.size(); ++j)
+      {
+        const std::string &iface = params_.state_interfaces[j];
+        double value = state_interfaces_[i * params_.state_interfaces.size() + j].get_value();
+        if (iface == "position")
+        {
+          state_publisher_->msg_.position.push_back(value);
+        }
+        else if (iface == "velocity")
+        {
+          state_publisher_->msg_.velocity.push_back(value);
+        }
+        else if (iface == "effort")
+        {
+          state_publisher_->msg_.effort.push_back(value);
+        }
+      }
+    }
+
+
+
     state_publisher_->unlockAndPublish();
   }
 

@@ -77,8 +77,8 @@ public:
 protected:
   struct WheelHandle
   {
-    std::reference_wrapper<const hardware_interface::LoanedStateInterface> feedback;
-    std::reference_wrapper<hardware_interface::LoanedCommandInterface> velocity;
+    std::reference_wrapper<const hardware_interface::LoanedStateInterface> feedback; // 只读
+    std::reference_wrapper<hardware_interface::LoanedCommandInterface> velocity; // 读写
   };
 
   controller_interface::CallbackReturn configure_side(

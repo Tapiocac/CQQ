@@ -96,12 +96,13 @@ controller_interface::CallbackReturn DiffTestController::on_configure(
   auto logger = get_node()->get_logger();
   RCLCPP_INFO(logger, "Configuring controller...");
 
-  // update parameters if they have changed
+  // 通过时间戳判断参数是否更新
   if (param_listener_->is_old(params_)) {
     params_ = param_listener_->get_params();
     RCLCPP_INFO(logger, "Parameters were updated");
   }
 
+  // 比较轮子个数
   if (params_.left_wheel_names.size() != params_.right_wheel_names.size())
   {
     RCLCPP_ERROR(
@@ -110,7 +111,7 @@ controller_interface::CallbackReturn DiffTestController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-
+  //判断轮子参数是否为空
   if (params_.left_wheel_names.empty()) {
     RCLCPP_ERROR(logger, "Left wheel names parameters are empty!");
     return controller_interface::CallbackReturn::ERROR;
@@ -121,16 +122,20 @@ controller_interface::CallbackReturn DiffTestController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
+  // 进行重置
   if (!reset()) {
     return controller_interface::CallbackReturn::ERROR;
   }
+  // 消息类型的初始化
   const Twist empty_twist;
   received_velocity_msg_ptr_.set(std::make_shared<Twist>(empty_twist));
   // Fill last two commands with default constructed commands
+  // 放入初始值
   previous_commands_.emplace(empty_twist);
   previous_commands_.emplace(empty_twist);
 
   // initialize command subscriber
+  // 初始化订阅者
   velocity_command_subscriber_ =
     get_node()->create_subscription<geometry_msgs::msg::Twist>(
     DEFAULT_COMMAND_TOPIC, rclcpp::SystemDefaultsQoS(),
@@ -147,19 +152,23 @@ controller_interface::CallbackReturn DiffTestController::on_configure(
 
 
   // initialize odometry publisher and messasge
+  // 初始化里程计消息发布器和实时里程计发布器
   odometry_publisher_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
     DEFAULT_ODOMETRY_TOPIC, rclcpp::SystemDefaultsQoS());
   realtime_odometry_publisher_ =
     std::make_shared<realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>>(
       odometry_publisher_);
 
+  // 通过引用直接访问实时里程计消息
   auto & odometry_message = realtime_odometry_publisher_->msg_;
+  // 设置里程计消息的坐标系信息
   odometry_message.header.frame_id = odom_frame_id;
   odometry_message.child_frame_id = base_frame_id;
-  // initialize odom values zeros
+  // 初始化速度（默认值为0）
   odometry_message.twist =
     geometry_msgs::msg::TwistWithCovariance(rosidl_runtime_cpp::MessageInitialization::ALL);
 
+  // 将位姿和速度的协方差矩阵对角线元素设置为0
   constexpr size_t NUM_DIMENSIONS = 6;
   for (size_t index = 0; index < 6; ++index)
   {
@@ -169,18 +178,20 @@ controller_interface::CallbackReturn DiffTestController::on_configure(
     odometry_message.twist.covariance[diagonal_index] = 0.0;
   }
 
+  // 设置里程计对象的轮距和轮半径参数，为后续里程计计算做准备。
   odometry_.setWheelParams(params_.wheels_separation, params_.wheel_radius, params_.wheel_radius);
 
-  // initialize transform publisher and message
+  // 创建TF变换消息发布器，发布 odom 到 base_link 的变换。
   odometry_transform_publisher_ = get_node()->create_publisher<tf2_msgs::msg::TFMessage>(
     DEFAULT_TRANSFORM_TOPIC, rclcpp::SystemDefaultsQoS());
   realtime_odometry_transform_publisher_ =
     std::make_shared<realtime_tools::RealtimePublisher<tf2_msgs::msg::TFMessage>>(
       odometry_transform_publisher_);
 
-  // keeping track of odom and base_link transforms only
+  // 只发布 odom 到 base_link 的单一变换
   auto & odometry_transform_message = realtime_odometry_transform_publisher_->msg_;
-  odometry_transform_message.transforms.resize(1);
+  odometry_transform_message.transforms.resize(1); // 设置 transforms 数组大小
+  // 设置第一个(也是唯一一个)变换消息的头部信息
   odometry_transform_message.transforms.front().header.frame_id = odom_frame_id;
   odometry_transform_message.transforms.front().child_frame_id = base_frame_id;
 
@@ -189,6 +200,7 @@ controller_interface::CallbackReturn DiffTestController::on_configure(
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
+// 注册左右轮的接口句柄，激活订阅和发布。
 controller_interface::CallbackReturn DiffTestController::on_activate(
   const rclcpp_lifecycle::State &)
 {
@@ -217,8 +229,8 @@ controller_interface::CallbackReturn DiffTestController::on_activate(
     return controller_interface::CallbackReturn::ERROR;
   }
 
-  is_halted = false;
-  subscriber_is_active_ = true;
+  is_halted = false; // 是否处于即停状态
+  subscriber_is_active_ = true; // 激活订阅者
 
 
   RCLCPP_INFO(get_node()->get_logger(), "Subscriber and publisher are now active.");
@@ -263,12 +275,17 @@ controller_interface::CallbackReturn DiffTestController::on_shutdown(
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-
+/*检查控制器状态，必要时停止电机
+获取并更新参数
+获取最新的速度指令
+读取轮子反馈（速度），计算平均值
+更新里程计（odometry）并发布
+计算并下发新的轮子速度指令*/
 controller_interface::return_type DiffTestController::update(
   const rclcpp::Time & time, const rclcpp::Duration & period)
 {
   auto logger = get_node()->get_logger();
-  //if controller unload
+  // 如果控制器为非活动状态，则停止轮子
   if (get_state().id() == State::PRIMARY_STATE_INACTIVE) {
     if (!is_halted) {
       halt();
@@ -281,7 +298,7 @@ controller_interface::return_type DiffTestController::update(
   this->params_ = param_listener_->get_params();
 
 
-  //update cmd
+  // 更新控制指令
   std::shared_ptr<Twist> last_command_msg;
   received_velocity_msg_ptr_.get(last_command_msg);
 
@@ -291,7 +308,7 @@ controller_interface::return_type DiffTestController::update(
   }
 
 
-  // command may be limited
+  // 指令限幅
   Twist command = *last_command_msg;
   // Unit m/s
   linear_command = std::clamp(
@@ -333,6 +350,7 @@ controller_interface::return_type DiffTestController::update(
     tf2::Quaternion orientation;
     orientation.setRPY(0.0, 0.0, odometry_.getHeading());
 
+    // 发布nav_msgs/Odometry消息
     if (realtime_odometry_publisher_->trylock())
     {
         auto & odometry_message = realtime_odometry_publisher_->msg_;
@@ -348,6 +366,7 @@ controller_interface::return_type DiffTestController::update(
         realtime_odometry_publisher_->unlockAndPublish();
     }
 
+    // 发布tf2_msgs/TFMessage变换
     if (realtime_odometry_transform_publisher_->trylock())
     {
         auto & transform = realtime_odometry_transform_publisher_->msg_.transforms.front();
@@ -362,7 +381,7 @@ controller_interface::return_type DiffTestController::update(
     }
 
 
-  // Compute wheels velocities:  Unit m/s
+  // 计算轮子速度指令:  Unit m/s
   const double velocity_right =
     (linear_command + angular_command * params_.wheels_separation / 2.0);
   const double velocity_left =
@@ -377,6 +396,7 @@ controller_interface::return_type DiffTestController::update(
   return controller_interface::return_type::OK;
 }
 
+// 确保每个轮子的状态和命令接口都被正确找到并封装
 controller_interface::CallbackReturn DiffTestController::configure_side(
   const std::string & wheel_kind,
   const std::vector<std::string> & wheel_names,
@@ -396,7 +416,7 @@ controller_interface::CallbackReturn DiffTestController::configure_side(
       [&wheel_name](const auto & interface)
       {
         return interface.get_prefix_name() == wheel_name &&
-        interface.get_interface_name() == HW_IF_VELOCITY;
+        interface.get_interface_name() == HW_IF_VELOCITY; // 检查关节/轮子名称是否一致，检查接口名是否一致
       });
 
     if (state_handle == state_interfaces_.cend()) {

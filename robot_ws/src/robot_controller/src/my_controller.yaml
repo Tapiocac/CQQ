@@ -37,14 +37,29 @@ my_controller:
       unique<>: null,
     }
   }
-  interface_name: {
-    type: string,
-    default_value: "",
-    description: "Name of the interface used by the controller on joints and command_joints.",
-    read_only: true,
-    validation: {
-      not_empty<>: null,
-      one_of<>: [["position", "velocity", "acceleration", "effort",]],
-      forbidden_interface_name_prefix: null
-    }
-  }
+  # interface_name: {
+  #   type: string,
+  #   default_value: "",
+  #   description: "Name of the interface used by the controller on joints and command_joints.",
+  #   read_only: true,
+  #   validation: {
+  #     not_empty<>: null,
+  #     one_of<>: [["position", "velocity", "acceleration", "effort",]],
+  #     forbidden_interface_name_prefix: null
+  #   }
+  # }
+  command_interfaces: 
+    type: string
+    default_value: ""
+    description: "command interfaces used by the controller on joints."
+    read_only: true
+    validation: 
+      not_empty<>: null
+    
+  state_interfaces: 
+    type: string_array
+    default_value: []
+    description: "List of state interfaces used by the controller on joints."
+    read_only: true
+    validation:
+      not_empty<>: null

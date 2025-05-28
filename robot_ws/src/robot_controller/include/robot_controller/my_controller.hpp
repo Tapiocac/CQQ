@@ -36,9 +36,13 @@
 // TODO(anyone): Replace with controller specific messages
 #include "control_msgs/msg/joint_controller_state.hpp"
 #include "control_msgs/msg/joint_jog.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 
 namespace robot_controller
 {
+
+
 // name constants for state interfaces
 static constexpr size_t STATE_MY_ITFS = 0;
 
@@ -50,6 +54,27 @@ enum class control_mode_type : std::uint8_t
 {
   FAST = 0,
   SLOW = 1,
+};
+
+struct Pid
+{
+  double kp = 0.0;         // 比例系数
+  double ki = 0.0;         // 积分系数
+  double kd = 0.0;         // 微分系数
+  double integral = 0.0;   // 积分项累计
+  double prev_error = 0.0; // 上一次误差
+  double max_effort = 10.0;// 输出最大限制
+  double min_effort = -10.0;// 输出最小限制
+
+  // 计算PID输出
+  double compute(double error, double dt)
+  {
+    integral += error * dt;
+    double derivative = (dt > 0) ? (error - prev_error) / dt : 0.0;
+    prev_error = error;
+    double output = kp * error + ki * integral + kd * derivative;
+    return std::clamp(output, min_effort, max_effort);
+  }
 };
 
 class MyController : public controller_interface::ControllerInterface
@@ -84,11 +109,19 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
   // TODO(anyone): replace the state and command message types
-  using ControllerReferenceMsg = control_msgs::msg::JointJog;
+  using ControllerReferenceMsg = std_msgs::msg::Float64MultiArray;
   using ControllerModeSrvType = std_srvs::srv::SetBool;
-  using ControllerStateMsg = control_msgs::msg::JointControllerState;
+  using ControllerStateMsg = sensor_msgs::msg::JointState;
+  // using CmdType = std_msgs::msg::Float64MultiArray;
 
 protected:
+  std::vector<std::string> joint_names_;
+  std::vector<Pid> pid_controllers_;
+  std::vector<double> target_velocities_;
+  std::vector<double> current_velocities_;
+  std::mutex mutex_;
+
+  // rclcpp::Subscription<CmdType>::SharedPtr cmd_sub_;
   std::shared_ptr<my_controller::ParamListener> param_listener_;
   my_controller::Params params_;
 
@@ -105,6 +138,17 @@ protected:
 
   rclcpp::Publisher<ControllerStateMsg>::SharedPtr s_publisher_;
   std::unique_ptr<ControllerStatePublisher> state_publisher_;
+
+
+  // rclcpp::Subscription<CmdType>::SharedPtr joints_command_subscriber_;
+  // realtime_tools::RealtimeBuffer<std::shared_ptr<CmdType>> rt_command_ptr_;
+
+  std::vector<std::string> command_interface_types_;
+
+  // PID控制器相关
+  std::vector<Pid> pid_controllers_;
+  std::vector<double> target_velocities_;
+  std::vector<double> current_velocities_;
 
 private:
   // callback for topic interface

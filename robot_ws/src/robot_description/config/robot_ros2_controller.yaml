@@ -6,7 +6,7 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
       use_sim_time: true
     robot_effort_controller:
-      type: effort_controllers/JointGroupEffortController
+      type: robot_controllers/MyController
 
 
 robot_effort_controller:
@@ -22,10 +22,5 @@ robot_effort_controller:
       - position
       - velocity
       - effort
-    gains:
-      left1_wheel_joint: {p: 10.0, i: 5.0, d: 1.0}
-      left2_wheel_joint: {p: 10.0, i: 5.0, d: 1.0}
-      right1_wheel_joint: {p: 10.0, i: 5.0, d: 1.0}
-      right2_wheel_joint: {p: 10.0, i: 5.0, d: 1.0}
 
 
