@@ -7,10 +7,10 @@
                 <plugin>gazebo_ros2_control/GazeboSystem</plugin>
             </hardware>
             <joint name="left1_wheel_joint">
-                <command_interface name="velocity">
+                <!-- <command_interface name="velocity">
                     <param name="min">-1</param>
                     <param name="max">1</param>
-                </command_interface>
+                </command_interface> -->
                 <command_interface name="effort">
                     <param name="min">-0.5</param>
                     <param name="max">0.5</param>
@@ -20,10 +20,10 @@
                 <state_interface name="effort" />
             </joint>
             <joint name="left2_wheel_joint">
-                <command_interface name="velocity">
+                <!-- <command_interface name="velocity">
                     <param name="min">-1</param>
                     <param name="max">1</param>
-                </command_interface>
+                </command_interface> -->
                 <command_interface name="effort">
                     <param name="min">-0.5</param>
                     <param name="max">0.5</param>
@@ -33,10 +33,10 @@
                 <state_interface name="effort" />
             </joint>
             <joint name="right1_wheel_joint">
-                <command_interface name="velocity">
+                <!-- <command_interface name="velocity">
                     <param name="min">-1</param>
                     <param name="max">1</param>
-                </command_interface>
+                </command_interface> -->
                 <command_interface name="effort">
                     <param name="min">-0.5</param>
                     <param name="max">0.5</param>
@@ -46,10 +46,10 @@
                 <state_interface name="effort" />
             </joint>
             <joint name="right2_wheel_joint">
-                <command_interface name="velocity">
+                <!-- <command_interface name="velocity">
                     <param name="min">-1</param>
                     <param name="max">1</param>
-                </command_interface>
+                </command_interface> -->
                 <command_interface name="effort">
                     <param name="min">-0.5</param>
                     <param name="max">0.5</param>

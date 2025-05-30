@@ -41,6 +41,9 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "geometry_msgs/msg/twist.hpp" 
+#include "nav_msgs/msg/odometry.hpp"
+#include "odometry.hpp"
+// #include "robot_controller/odometry.hpp"
 
 // #include <control_toolbox/pid.hpp>
 
@@ -155,6 +158,13 @@ protected:
   // realtime_tools::RealtimeBuffer<std::shared_ptr<CmdType>> rt_command_ptr_;
 
   std::vector<std::string> command_interface_types_;
+
+  // 里程计相关
+  Odometry odometry_;
+
+  std::shared_ptr<rclcpp::Publisher<nav_msgs::msg::Odometry>> odometry_publisher_ = nullptr;
+  std::shared_ptr<realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>>
+    realtime_odometry_publisher_ = nullptr;
 
 private:
   // callback for topic interface

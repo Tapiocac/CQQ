@@ -15,6 +15,8 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclcpp_lifecycle
   realtime_tools
   std_srvs
+  nav_msgs
+  tf2
 )
 
 find_package(ament_cmake REQUIRED)
@@ -39,6 +41,7 @@ add_library(
   my_controller
   SHARED
   src/my_controller.cpp
+  src/odometry.cpp
 )
 target_include_directories(my_controller PUBLIC
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"

@@ -26,6 +26,7 @@
 
 #include "controller_interface/helpers.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "tf2/LinearMath/Quaternion.hpp"
 
 namespace
 {  // utility
@@ -110,8 +111,8 @@ controller_interface::CallbackReturn MyController::on_configure(
 
   // topics QoS
   auto subscribers_qos = rclcpp::SystemDefaultsQoS();
-  subscribers_qos.keep_last(1);
-  subscribers_qos.best_effort();
+  // subscribers_qos.keep_last(1);
+  // subscribers_qos.best_effort();
 
 
   // Reference Subscriber - Nav2 typically publishes to /cmd_vel
@@ -130,6 +131,16 @@ controller_interface::CallbackReturn MyController::on_configure(
     RCLCPP_ERROR(get_node()->get_logger(), "Exception during publisher creation: %s", e.what());
     return controller_interface::CallbackReturn::ERROR;
   }
+
+  // 初始化里程计发布者
+  odometry_publisher_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
+    "/odom", rclcpp::SystemDefaultsQoS());
+  realtime_odometry_publisher_ =
+    std::make_shared<realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>>(
+      odometry_publisher_);
+
+  odometry_.setWheelParams(wheel_separation_, wheel_radius_, wheel_radius_);
+  odometry_.setVelocityRollingWindowSize(static_cast<size_t>(10));
 
   // 初始化PID控制器
   pid_controllers_.resize(joint_names_.size());
@@ -332,6 +343,27 @@ controller_interface::return_type MyController::update(
     state_publisher_->unlockAndPublish();
   }
 
+  // 5. 发布里程计 (geometry_msgs::msg::Odometry)
+
+  odometry_.updateOpenLoop(linear_vel_x, angular_vel_z, time);
+
+  tf2::Quaternion orientation;
+  orientation.setRPY(0.0, 0.0, odometry_.getHeading());
+
+  if (realtime_odometry_publisher_->trylock())
+    {
+      auto & odometry_message = realtime_odometry_publisher_->msg_;
+      odometry_message.header.stamp = time;
+      odometry_message.pose.pose.position.x = odometry_.getX();
+      odometry_message.pose.pose.position.y = odometry_.getY();
+      odometry_message.pose.pose.orientation.x = orientation.x();
+      odometry_message.pose.pose.orientation.y = orientation.y();
+      odometry_message.pose.pose.orientation.z = orientation.z();
+      odometry_message.pose.pose.orientation.w = orientation.w();
+      odometry_message.twist.twist.linear.x = odometry_.getLinear();
+      odometry_message.twist.twist.angular.z = odometry_.getAngular();
+      realtime_odometry_publisher_->unlockAndPublish();
+    }
   return controller_interface::return_type::OK;
 }
 

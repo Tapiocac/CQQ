@@ -35,6 +35,10 @@ ros_team_workspace
 `git clone ros_team_workspace`
 
 
+
+tf-transformations四元数变换库
+
+
 步骤：
 1. 实现基于位置的控制
 
@@ -115,6 +119,15 @@ struct Params {
 std::vector<hardware_interface::LoanedCommandInterface> command_interfaces_;
 std::vector<hardware_interface::LoanedStateInterface> state_interfaces_;
 ```
+
+## 自定义硬件层
+
+info_ 信息来自于机器人ros2_control.xacro描述文件，包含了关节、传感器，以及其拥有的状态，命令接口等信息
+
+
+
+
+
 
 ## 测试部分
 修改CMakeList，删除`if(BUILD_TESTING)`部分与`ament_cmake_gmock`,`ros2_control_test_assets`包依赖

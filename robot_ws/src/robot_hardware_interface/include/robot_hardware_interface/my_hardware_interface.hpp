@@ -64,6 +64,14 @@ public:
 private:
   std::vector<double> hw_commands_;
   std::vector<double> hw_states_;
+  std::vector<std::string> joint_names_; // 存储关节名称
+
+  // --- 实际硬件通信相关成员 ---
+  // 示例：如果您使用串口
+  // LibSerial::SerialPort serial_port_;
+  // std::string serial_port_name_ = "/dev/ttyUSB0";
+  // int baud_rate_ = 115200;
+  // -----------------------------
 };
 
 }  // namespace robot_hardware_interface
