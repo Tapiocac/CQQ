@@ -6,7 +6,7 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
       use_sim_time: true
     robot_effort_controller:
-      type: robot_controllers/MyController
+      type: robot_controller/MyController
 
 
 robot_effort_controller:
@@ -16,11 +16,16 @@ robot_effort_controller:
       - left2_wheel_joint
       - right1_wheel_joint
       - right2_wheel_joint
-    command_interfaces:
-      - effort
+    command_interfaces: effort
     state_interfaces:
       - position
       - velocity
       - effort
+    pid:
+      p: 1.0
+      i: 0.0
+      d: 0.0
+      max_effort: 0.5
+      min_effort: -0.5
 
 

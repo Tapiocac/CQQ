@@ -63,3 +63,25 @@ my_controller:
     read_only: true
     validation:
       not_empty<>: null
+
+  pid:
+    p:
+      type: double
+      default_value: 0.0
+      description: "Proportional gain for PID"
+    i:
+      type: double
+      default_value: 0.0
+      description: "Integral gain for PID"
+    d:
+      type: double
+      default_value: 0.0
+      description: "Derivative gain for PID"
+    max_effort:
+      type: double
+      default_value: 0.0
+      description: "Maximum effort for PID"
+    min_effort:
+      type: double
+      default_value: 0.0
+      description: "Minimum effort for PID"

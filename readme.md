@@ -31,11 +31,8 @@ ros2_control自带控制器
 Gazebo的ros2_control插件
 `sudo apt install ros-$ROS_DISTRO-gazebo-ros2-control`
 
-
-clone ros_team_workspace
-
-安装gmock
-`sudo apt install libgmock-dev`
+ros_team_workspace
+`git clone ros_team_workspace`
 
 
 步骤：
@@ -93,11 +90,39 @@ return: SUCCESS
 std::ref 让你可以间接在容器中存放引用，并通过 .get() 访问原始对象，是现代C++中常用的工具。
 
 
-input_ref_通过订阅话题接收上位机的命令，ros2_control根据yaml文件中的配置声明来生成接收和下发到硬件的接口
+input_ref_通过订阅话题接收上位机的命令，ros2_control根据yaml文件中的配置声明来生成参数结构体`Params`与接收和下发到硬件的接口`command_interfaces_`和`state_interfaces_`
+
+`Params` 通过读取机器人描述文件中的`xxx_ros2_controller.yaml`配置文件得到信息
+
+`command_interfaces_`和`state_interfaces_` 分别通过`set_value()`和`get_value()`来与硬件层传递信息，其中排列方式为：`joint1/interface1`,`joint1/interface2`,...,`joint4/interface4`
 
 
 
+```cpp
+# my_controller_parameters.hpp
+struct Params {
+    std::vector<std::string> joints = {};
+    std::vector<std::string> state_joints = {};
+    std::string command_interfaces = "";
+    std::vector<std::string> state_interfaces = {};
+    // for detecting if the parameter struct has been updated
+    rclcpp::Time __stamp;
+};
+```
 
+```cpp
+# controller_interface_base.hpp
+std::vector<hardware_interface::LoanedCommandInterface> command_interfaces_;
+std::vector<hardware_interface::LoanedStateInterface> state_interfaces_;
+```
+
+## 测试部分
+修改CMakeList，删除`if(BUILD_TESTING)`部分与`ament_cmake_gmock`,`ros2_control_test_assets`包依赖
+
+## 命令行
+`ros2 topic pub --once  /robot_effort_controller/reference std_msgs/msg/Float64MultiArray '{layout: {dim: [{label: "velocities", size: 4, stride: 1}], data_offset: 0}, data: [0, 0, 0, 0]}'`
+
+`ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"`
 
 # 官方力控制器
 

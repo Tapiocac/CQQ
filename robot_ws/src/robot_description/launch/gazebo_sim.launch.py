@@ -41,14 +41,14 @@ def generate_launch_description():
     
     # 加载并激活 robot_joint_state_broadcaster 控制器
     load_joint_state_controller = launch.actions.ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'start',
+        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
             'robot_joint_state_broadcaster'],
         output='screen'
     )
 
     # 加载并激活 robot_effort_controller 控制器
     load_robot_effort_controller = launch.actions.ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'start','robot_effort_controller'], 
+        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active','robot_effort_controller'], 
         output='screen')
     
     return launch.LaunchDescription([

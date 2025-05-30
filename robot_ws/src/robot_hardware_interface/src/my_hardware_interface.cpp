@@ -28,10 +28,23 @@ hardware_interface::CallbackReturn MyHardwareInterface::on_init(
   {
     return CallbackReturn::ERROR;
   }
+  // info_ 信息来自于机器人ros2_control.xacro描述文件，包含了关节、传感器等信息
+  // 计算状态接口总数
+  size_t num_state_interfaces = 0;
+  for (const auto & joint : info_.joints)
+  {
+    num_state_interfaces += joint.state_interfaces.size();
+  }
+  hw_states_.resize(num_state_interfaces, std::numeric_limits<double>::quiet_NaN());
 
-  // TODO(anyone): read parameters and initialize the hardware
-  hw_states_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
-  hw_commands_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+  // 计算命令接口总数
+  size_t num_command_interfaces = 0;
+  for (const auto & joint : info_.joints)
+  {
+    num_command_interfaces += joint.command_interfaces.size();
+  }
+  hw_commands_.resize(num_command_interfaces, std::numeric_limits<double>::quiet_NaN());
+
 
   return CallbackReturn::SUCCESS;
 }
@@ -39,7 +52,18 @@ hardware_interface::CallbackReturn MyHardwareInterface::on_init(
 hardware_interface::CallbackReturn MyHardwareInterface::on_configure(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // TODO(anyone): prepare the robot to be ready for read calls and write calls of some interfaces
+  // 为所有状态接口设置初始值
+  for (double & state : hw_states_)
+  {
+    state = 0.0; 
+  }
+  // 为所有命令接口设置初始值
+  for (double & command : hw_commands_)
+  {
+    command = 0.0; 
+  }
+
+  RCLCPP_INFO(rclcpp::get_logger("MyHardwareInterface"), "Successfully configured!");
 
   return CallbackReturn::SUCCESS;
 }
@@ -47,11 +71,14 @@ hardware_interface::CallbackReturn MyHardwareInterface::on_configure(
 std::vector<hardware_interface::StateInterface> MyHardwareInterface::export_state_interfaces()
 {
   std::vector<hardware_interface::StateInterface> state_interfaces;
+  size_t state_interface_index = 0;
   for (size_t i = 0; i < info_.joints.size(); ++i)
   {
-    state_interfaces.emplace_back(hardware_interface::StateInterface(
-      // TODO(anyone): insert correct interfaces
-      info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_states_[i]));
+    for (const auto & interface_info : info_.joints[i].state_interfaces)
+    {
+      state_interfaces.emplace_back(hardware_interface::StateInterface(
+        info_.joints[i].name, interface_info.name, &hw_states_[state_interface_index++]));
+    }
   }
 
   return state_interfaces;
@@ -60,11 +87,15 @@ std::vector<hardware_interface::StateInterface> MyHardwareInterface::export_stat
 std::vector<hardware_interface::CommandInterface> MyHardwareInterface::export_command_interfaces()
 {
   std::vector<hardware_interface::CommandInterface> command_interfaces;
+
+  size_t command_interface_index = 0;
   for (size_t i = 0; i < info_.joints.size(); ++i)
   {
-    command_interfaces.emplace_back(hardware_interface::CommandInterface(
-      // TODO(anyone): insert correct interfaces
-      info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_commands_[i]));
+    for (const auto & interface_info : info_.joints[i].command_interfaces)
+    {
+      command_interfaces.emplace_back(hardware_interface::CommandInterface(
+        info_.joints[i].name, interface_info.name, &hw_commands_[command_interface_index++]));
+    }
   }
 
   return command_interfaces;
@@ -73,7 +104,8 @@ std::vector<hardware_interface::CommandInterface> MyHardwareInterface::export_co
 hardware_interface::CallbackReturn MyHardwareInterface::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // TODO(anyone): prepare the robot to receive commands
+  
+  RCLCPP_INFO(rclcpp::get_logger("MyHardwareInterface"), "Successfully activated!");
 
   return CallbackReturn::SUCCESS;
 }
@@ -82,6 +114,12 @@ hardware_interface::CallbackReturn MyHardwareInterface::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   // TODO(anyone): prepare the robot to stop receiving commands
+  for (double & command : hw_commands_)
+  {
+    command = 0.0;
+  }
+
+  RCLCPP_INFO(rclcpp::get_logger("MyHardwareInterface"), "Successfully deactivated!");
 
   return CallbackReturn::SUCCESS;
 }
@@ -89,7 +127,13 @@ hardware_interface::CallbackReturn MyHardwareInterface::on_deactivate(
 hardware_interface::return_type MyHardwareInterface::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // TODO(anyone): read robot states
+  // 当使用 gazebo_ros2_control 时，Gazebo 插件会直接更新 hw_states_ 指向的内存。
+
+  RCLCPP_INFO(rclcpp::get_logger("MyHardwareInterface"), "Reading states from Gazebo (handled by gazebo_ros2_control)");
+  //打印读取到的第一个关节的第一个状态值 (如果存在)
+  if (!hw_states_.empty()) {
+    RCLCPP_DEBUG(rclcpp::get_logger("MyHardwareInterface"), "Current state [0]: %f", hw_states_[0]);
+  }
 
   return hardware_interface::return_type::OK;
 }
@@ -97,7 +141,13 @@ hardware_interface::return_type MyHardwareInterface::read(
 hardware_interface::return_type MyHardwareInterface::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // TODO(anyone): write robot's commands'
+  // 当使用 gazebo_ros2_control 时，Gazebo 插件会直接从 hw_commands_ 指向的内存读取命令。
+
+  RCLCPP_INFO(rclcpp::get_logger("MyHardwareInterface"), "Writing commands to Gazebo (handled by gazebo_ros2_control)");
+  // 打印将要写入的第一个关节的第一个命令值 (如果存在)
+  if (!hw_commands_.empty()) {
+   RCLCPP_DEBUG(rclcpp::get_logger("MyHardwareInterface"), "Current command [0]: %f", hw_commands_[0]);
+  }
 
   return hardware_interface::return_type::OK;
 }

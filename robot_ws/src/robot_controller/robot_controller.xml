@@ -18,7 +18,7 @@ Source of this file are templates in
 [RosTeamWorkspace](https://github.com/StoglRobotics/ros_team_workspace) repository.
 -->
 
-<library path="robot_controller">
+<library path="my_controller">
   <class name="robot_controller/MyController"
          type="robot_controller::MyController" base_class_type="controller_interface::ControllerInterface">
   <description>
